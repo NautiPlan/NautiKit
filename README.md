@@ -7,6 +7,7 @@ NautiKit 是 [NautiPlan](https://github.com/NautiPlan/NautiPlan) 的工具层重
 ## 模块
 
 ### MCP 1 · 任务核心
+
 基于本地 SQLite 的任务与计划管理。
 
 - 任务增删改查
@@ -15,6 +16,7 @@ NautiKit 是 [NautiPlan](https://github.com/NautiPlan/NautiPlan) 的工具层重
 - 生成计划时自动从知识库召回相关上下文
 
 ### MCP 2 · 知识库（RAG）
+
 基于本地向量数据库的个人知识检索。
 
 - 文档入库、更新、删除
@@ -22,12 +24,13 @@ NautiKit 是 [NautiPlan](https://github.com/NautiPlan/NautiPlan) 的工具层重
 - 检索结果作为上下文传递给上游 Agent，参与计划制定
 
 ### MCP 3 · 信息检索
+
 通用与垂直领域搜索。
 
 - 通用 Web 搜索（无需专用 API）
 - 垂直领域检索：arXiv 论文、GitHub 开源项目（可扩展）
 
-### MCP 4 · GitHub 存储 *(附加模块)*
+### MCP 4 · GitHub 存储 _(附加模块)_
 
 - 大文件与隐私文件分级处理
 - 基于文件类型与敏感度的选择性推送/拉取
@@ -37,18 +40,28 @@ NautiKit 是 [NautiPlan](https://github.com/NautiPlan/NautiPlan) 的工具层重
 
 Skill 定义上游 Agent 应如何编排上述 MCP 工具，以提示词 + 工作流的形式提供。
 
-| Skill | 描述 |
-|---|---|
-| 任务生成 | 知识库召回 + 可选搜索 → 输出结构化计划 |
-| 优先级重排 | 基于更新的上下文对现有任务重新排序 |
-| 知识入库 | 处理文档 → 分块 → 向量化 → 存储 |
-| 领域调研 | arXiv / GitHub 检索 → 整理摘要 → 关联任务 |
+| Skill      | 描述                                      |
+| ---------- | ----------------------------------------- |
+| 任务生成   | 知识库召回 + 可选搜索 → 输出结构化计划    |
+| 优先级重排 | 基于更新的上下文对现有任务重新排序        |
+| 知识入库   | 处理文档 → 分块 → 向量化 → 存储           |
+| 领域调研   | arXiv / GitHub 检索 → 整理摘要 → 关联任务 |
 
-## 目录结构
+## 当前实现
 
 ```
-/mcp        # MCP Server 实现
-/skills     # Skill 定义（提示词 + 工作流）
-/docs       # 接入文档
+NautiKit/
+├── cmd/nautikit/main.go         # CLI 入口，stdio 模式
+├── pkg/
+│   ├── inventory/
+│   │   ├── server_tool.go       # ServerTool 类型（Tool + Handler）
+│   │   └── registry.go          # Inventory（Add / All / RegisterAll）
+│   └── taskcore/
+│       ├── models.go            # Task 结构体
+│       ├── store.go             # 内存存储（sync.RWMutex）
+│       └── tools.go             # 3 个工具：echo, task_create, task_list
+├── build/nautikit               # 编译产物
+├── Makefile
+├── go.mod
+└── go.sum
 ```
-
