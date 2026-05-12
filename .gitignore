@@ -7,3 +7,5 @@ demo/agent/demo-agent
 
 # local config (contains API key)
 nautikit-config
+
+.DS_Store
