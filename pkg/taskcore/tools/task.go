@@ -1,4 +1,4 @@
-package taskcore
+package tools
 
 import (
 	"context"
@@ -8,46 +8,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/NautiKit/NautiKit/pkg/inventory"
+	"github.com/NautiKit/NautiKit/pkg/taskcore"
 )
-
-// ---------- echo ----------
-
-var echoInputSchema = &jsonschema.Schema{
-	Type: "object",
-	Properties: map[string]*jsonschema.Schema{
-		"message": {Type: "string", Description: "The message to echo back"},
-	},
-	Required: []string{"message"},
-}
-
-func Echo() inventory.ServerTool {
-	return inventory.ServerTool{
-		Tool: &mcp.Tool{
-			Name:        "echo",
-			Description: "Echo back the input message",
-			InputSchema: echoInputSchema,
-		},
-		HandlerFunc: func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			var args struct {
-				Message string `json:"message"`
-			}
-			if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
-				return nil, err
-			}
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{&mcp.TextContent{Text: args.Message}},
-			}, nil
-		},
-	}
-}
-
-// ---------- task_create ----------
 
 var taskCreateInputSchema = &jsonschema.Schema{
 	Type: "object",
 	Properties: map[string]*jsonschema.Schema{
-		"title":    {Type: "string", Description: "Task title"},
-		"priority": {Type: "string", Description: "Task priority: high, medium, or low"},
+		"plan_id":     {Type: "string", Description: "Plan ID this task belongs to"},
+		"title":       {Type: "string", Description: "Task title"},
+		"description": {Type: "string", Description: "Task description"},
+		"date":        {Type: "string", Description: "Scheduled date, e.g. 2026-05-28"},
+		"priority":    {Type: "string", Description: "Task priority: high, medium, or low"},
 	},
 	Required: []string{"title"},
 }
@@ -61,8 +32,11 @@ func TaskCreate() inventory.ServerTool {
 		},
 		HandlerFunc: func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args struct {
-				Title    string `json:"title"`
-				Priority string `json:"priority"`
+				PlanID      string `json:"plan_id"`
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				Date        string `json:"date"`
+				Priority    string `json:"priority"`
 			}
 			if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
 				return nil, err
@@ -71,7 +45,13 @@ func TaskCreate() inventory.ServerTool {
 				args.Priority = "medium"
 			}
 
-			t := AddTask(Task{Title: args.Title, Priority: args.Priority})
+			t := taskcore.AddTask(taskcore.Task{
+				PlanID:      args.PlanID,
+				Title:       args.Title,
+				Description: args.Description,
+				Date:        args.Date,
+				Priority:    args.Priority,
+			})
 
 			b, _ := json.MarshalIndent(t, "", "  ")
 			return &mcp.CallToolResult{
@@ -81,22 +61,27 @@ func TaskCreate() inventory.ServerTool {
 	}
 }
 
-// ---------- task_list ----------
-
 var taskListInputSchema = &jsonschema.Schema{
-	Type:       "object",
-	Properties: map[string]*jsonschema.Schema{},
+	Type: "object",
+	Properties: map[string]*jsonschema.Schema{
+		"plan_id": {Type: "string", Description: "Filter tasks by plan ID (optional)"},
+	},
 }
 
 func TaskList() inventory.ServerTool {
 	return inventory.ServerTool{
 		Tool: &mcp.Tool{
 			Name:        "task_list",
-			Description: "List all tasks",
+			Description: "List tasks, optionally filtered by plan",
 			InputSchema: taskListInputSchema,
 		},
 		HandlerFunc: func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			tasks := ListTasks()
+			var args struct {
+				PlanID string `json:"plan_id"`
+			}
+			json.Unmarshal(req.Params.Arguments, &args)
+
+			tasks := taskcore.ListTasks(args.PlanID)
 			b, _ := json.MarshalIndent(tasks, "", "  ")
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},

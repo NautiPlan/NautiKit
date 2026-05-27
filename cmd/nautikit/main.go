@@ -10,14 +10,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/NautiKit/NautiKit/pkg/inventory"
-	"github.com/NautiKit/NautiKit/pkg/taskcore"
+	"github.com/NautiKit/NautiKit/pkg/taskcore/tools"
 )
 
 func main() {
 	inv := inventory.New()
-	inv.Add(taskcore.Echo())
-	inv.Add(taskcore.TaskCreate())
-	inv.Add(taskcore.TaskList())
+	inv.Add(tools.Echo())
+	inv.Add(tools.TaskCreate())
+	inv.Add(tools.TaskList())
+	inv.Add(tools.PlanCreate())
+	inv.Add(tools.PlanList())
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "NautiKit",
