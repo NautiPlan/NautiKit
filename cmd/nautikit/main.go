@@ -10,6 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/NautiKit/NautiKit/pkg/inventory"
+	"github.com/NautiKit/NautiKit/pkg/kbcore"
+	kbtools "github.com/NautiKit/NautiKit/pkg/kbcore/tools"
 	"github.com/NautiKit/NautiKit/pkg/taskcore"
 	"github.com/NautiKit/NautiKit/pkg/taskcore/tools"
 )
@@ -21,6 +23,11 @@ func main() {
 	}
 	defer taskcore.Close()
 
+	if err := kbcore.Init(""); err != nil {
+		log.Fatalf("初始化知识库失败: %v", err)
+	}
+	defer kbcore.Close()
+
 	inv := inventory.New()
 	inv.Add(tools.Echo())
 	inv.Add(tools.TaskCreate())
@@ -31,6 +38,8 @@ func main() {
 	inv.Add(tools.PlanList())
 	inv.Add(tools.PlanGet())
 	inv.Add(tools.PlanDelete())
+	inv.Add(kbtools.KBIngest())
+	inv.Add(kbtools.KBSearch())
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "NautiKit",
