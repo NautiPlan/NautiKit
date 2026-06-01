@@ -84,3 +84,35 @@ func ListPlans() []Plan {
 	db.Order("created_at DESC").Find(&out)
 	return out
 }
+
+func DeletePlan(id uint) error {
+	var p Plan
+	if err := db.First(&p, id).Error; err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("plan_id = ?", id).Delete(&Task{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&p).Error
+	})
+}
+
+func UpdateTask(id uint, updates map[string]any) (Task, error) {
+	var t Task
+	if err := db.First(&t, id).Error; err != nil {
+		return Task{}, err
+	}
+	if err := db.Model(&t).Updates(updates).Error; err != nil {
+		return Task{}, err
+	}
+	db.First(&t, id)
+	return t, nil
+}
+
+func DeleteTask(id uint) error {
+	if err := db.First(&Task{}, id).Error; err != nil {
+		return err
+	}
+	return db.Delete(&Task{}, id).Error
+}

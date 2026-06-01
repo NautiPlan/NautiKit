@@ -108,3 +108,97 @@ func TaskList() inventory.ServerTool {
 		},
 	}
 }
+
+var taskUpdateInputSchema = &jsonschema.Schema{
+	Type: "object",
+	Properties: map[string]*jsonschema.Schema{
+		"id":          {Type: "string", Description: "Task ID (required)"},
+		"title":       {Type: "string", Description: "New task title"},
+		"description": {Type: "string", Description: "New task description"},
+		"date":        {Type: "string", Description: "New scheduled date, e.g. 2026-05-28"},
+		"priority":    {Type: "string", Description: "New priority: high, medium, or low"},
+		"done":        {Type: "boolean", Description: "Mark task as done or not done"},
+	},
+	Required: []string{"id"},
+}
+
+func TaskUpdate() inventory.ServerTool {
+	return inventory.ServerTool{
+		Tool: &mcp.Tool{
+			Name:        "task_update",
+			Description: "Update an existing task. Only provided fields will be updated.",
+			InputSchema: taskUpdateInputSchema,
+		},
+		HandlerFunc: func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var raw map[string]any
+			if err := json.Unmarshal(req.Params.Arguments, &raw); err != nil {
+				return nil, err
+			}
+
+			idStr, ok := raw["id"].(string)
+			if !ok {
+				return nil, nil
+			}
+			id, err := strconv.ParseUint(idStr, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+
+			updates := make(map[string]any)
+			for _, k := range []string{"title", "description", "date", "priority", "done"} {
+				if v, exists := raw[k]; exists {
+					updates[k] = v
+				}
+			}
+
+			t, err := taskcore.UpdateTask(uint(id), updates)
+			if err != nil {
+				return nil, err
+			}
+
+			b, _ := json.MarshalIndent(t, "", "  ")
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
+			}, nil
+		},
+	}
+}
+
+var taskDeleteInputSchema = &jsonschema.Schema{
+	Type: "object",
+	Properties: map[string]*jsonschema.Schema{
+		"id": {Type: "string", Description: "Task ID to delete (required)"},
+	},
+	Required: []string{"id"},
+}
+
+func TaskDelete() inventory.ServerTool {
+	return inventory.ServerTool{
+		Tool: &mcp.Tool{
+			Name:        "task_delete",
+			Description: "Delete a task by ID",
+			InputSchema: taskDeleteInputSchema,
+		},
+		HandlerFunc: func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var args struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+				return nil, err
+			}
+
+			id, err := strconv.ParseUint(args.ID, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+
+			if err := taskcore.DeleteTask(uint(id)); err != nil {
+				return nil, err
+			}
+
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "deleted"}},
+			}, nil
+		},
+	}
+}

@@ -25,8 +25,12 @@ func main() {
 	inv.Add(tools.Echo())
 	inv.Add(tools.TaskCreate())
 	inv.Add(tools.TaskList())
+	inv.Add(tools.TaskUpdate())
+	inv.Add(tools.TaskDelete())
 	inv.Add(tools.PlanCreate())
 	inv.Add(tools.PlanList())
+	inv.Add(tools.PlanGet())
+	inv.Add(tools.PlanDelete())
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "NautiKit",
