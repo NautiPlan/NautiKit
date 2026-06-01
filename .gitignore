@@ -9,3 +9,6 @@ demo/agent/demo-agent
 nautikit-config
 
 .DS_Store
+
+.claude
+.mcp.json
