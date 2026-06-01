@@ -54,6 +54,7 @@ NautiKit/
 ├── demo/agent/                       # Demo Agent（独立 CLI）
 ├── build/                            # 构建输出
 ├── .mcp.json                         # MCP Server 配置（Claude Code 用）
+├── DigimonGPT-guide.md               # 可演进 Agent 记忆系统架构指南
 ├── Makefile
 ├── go.mod / go.sum
 └── README.md
@@ -74,6 +75,19 @@ NautiKit/
 | `plan_list`   | 无                                                              | 列出所有计划             |
 | `plan_get`    | `id` (必填)                                                     | 查看单个计划及其所有任务 |
 | `plan_delete` | `id` (必填)                                                     | 删除计划及其中所有任务   |
+
+## Skill
+
+Skill 定义在 `skills/` 目录，描述如何编排 MCP 工具完成复杂任务：
+
+| Skill               | 说明                                                              |
+| ------------------- | ----------------------------------------------------------------- |
+| plan-generation     | 自然语言 → Plan → Task，拆解、分配日期和优先级（由 LLM 实时决定） |
+| knowledge-ingestion | （规划中）校验浓缩 → 向量入库                                     |
+| memory-recall       | （规划中）复杂度感知的动态检索                                    |
+| pattern-abstraction | （规划中）从历史任务中提炼通用决策模式                            |
+
+使用方式：复制到 `.claude/skills/<名称>/SKILL.md`，重启 Claude Code 后 `/skills` 可见。
 
 ## 存储
 
@@ -98,15 +112,31 @@ go build -o build/nautikit ./cmd/nautikit/
 - [x] 任务 CRUD（create / list / update / delete）
 - [x] 计划 CRUD（create / list / get / delete），删除计划级联删任务
 - [x] SQLite 持久化
-- [x] 计划生成 Skill（自然语言 → Plan → Task）
-- [ ] 动态优先级计算
-- [ ] 计划生成含知识库召回
+- [x] 计划生成 Skill（自然语言 → Plan → Task，含 LLM 实时确定优先级）
+- [ ] 动态优先级计算（公式化算法，如 urgency + importance + recency_bonus，暂不列入当前迭代）
 
 ### MCP 2 · 知识库（RAG）
 
-- [ ] 文档入库、分块、向量化
-- [ ] 混合检索（向量 + 全文）
-- [ ] 上下文召回
+参考 [DigimonGPT-guide.md](DigimonGPT-guide.md) 的架构设计，MCP 工具提供基础操作，Skill 负责智能编排。
+
+**MCP 工具（4 个）：**
+
+| 工具        | 描述                                                                    |
+| ----------- | ----------------------------------------------------------------------- |
+| `kb_ingest` | 文档入库：分块、向量化、存储，支持 metadata 标签                        |
+| `kb_search` | 向量检索：cosine similarity 排序，可配 k 值、相似度阈值和 metadata 过滤 |
+| `kb_delete` | 删除指定文档                                                            |
+| `kb_list`   | 列出文档（按 metadata 过滤）                                            |
+
+**配套 Skill（3 个）：**
+
+| Skill               | 编排逻辑                                            |
+| ------------------- | --------------------------------------------------- |
+| knowledge-ingestion | 校验结果质量 → 浓缩摘要 → `kb_ingest`               |
+| memory-recall       | 复杂度评估 → 动态 k → `kb_search`（替代固定 top-N） |
+| pattern-abstraction | 攒够 N 个同类任务 → LLM 抽象 pattern → `kb_ingest`  |
+
+**落地顺序：** knowledge-ingestion → memory-recall → pattern-abstraction
 
 ### MCP 3 · 信息检索
 
