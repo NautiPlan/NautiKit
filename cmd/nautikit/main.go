@@ -40,6 +40,9 @@ func main() {
 	inv.Add(tools.PlanDelete())
 	inv.Add(kbtools.KBIngest())
 	inv.Add(kbtools.KBSearch())
+	inv.Add(kbtools.KBList())
+	inv.Add(kbtools.KBDelete())
+	inv.Add(kbtools.KBClear())
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "NautiKit",

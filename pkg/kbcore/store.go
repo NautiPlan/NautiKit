@@ -156,3 +156,26 @@ func cosine(a, b []float64) float64 {
 	}
 	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
+
+func ListDocuments(filter map[string]any) []Document {
+	var docs []Document
+	db.Find(&docs)
+	if filter == nil {
+		return docs
+	}
+	out := make([]Document, 0, len(docs))
+	for _, d := range docs {
+		if matchFilter(d.Metadata, filter) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func DeleteDocument(id uint) error {
+	return db.Delete(&Document{}, id).Error
+}
+
+func ClearDocuments() error {
+	return db.Where("1 = 1").Delete(&Document{}).Error
+}
