@@ -1,127 +1,114 @@
 # NautiKit
 
-> 面向 AI 任务规划的 MCP 工具集与 Skill 定义 — 即插即用，兼容任意 Agent。
+> 面向 AI 任务规划的 MCP 工具集 — 即插即用，兼容任意 MCP Agent。
 
-NautiKit 是 [NautiPlan](https://github.com/NautiPlan/NautiPlan) 的工具层重构，将任务管理、知识检索、信息搜索等能力封装为标准 MCP Server，并提供配套 Skill 定义。
-
-## 模块
-
-### MCP 1 · 任务核心
-
-基于本地 SQLite 的任务与计划管理。
-
-- 任务增删改查
-- 自然语言 → 结构化任务生成
-- 动态优先级计算与排序
-- 生成计划时自动从知识库召回相关上下文
-
-### MCP 2 · 知识库（RAG）
-
-基于本地向量数据库的个人知识检索。
-
-- 文档入库、更新、删除
-- 本地向量检索
-- 检索结果作为上下文传递给上游 Agent，参与计划制定
-
-### MCP 3 · 信息检索
-
-通用与垂直领域搜索。
-
-- 通用 Web 搜索（无需专用 API）
-- 垂直领域检索：arXiv 论文、GitHub 开源项目（可扩展）
-
-### MCP 4 · GitHub 存储 _(附加模块)_
-
-- 大文件与隐私文件分级处理
-- 基于文件类型与敏感度的选择性推送/拉取
-- 作为知识库的独立存储后端运行
-
-## Skills
-
-Skill 定义上游 Agent 应如何编排上述 MCP 工具，以提示词 + 工作流的形式提供。
-
-| Skill      | 描述                                      |
-| ---------- | ----------------------------------------- |
-| 任务生成   | 知识库召回 + 可选搜索 → 输出结构化计划    |
-| 优先级重排 | 基于更新的上下文对现有任务重新排序        |
-| 知识入库   | 处理文档 → 分块 → 向量化 → 存储           |
-| 领域调研   | arXiv / GitHub 检索 → 整理摘要 → 关联任务 |
+NautiKit 是 [NautiPlan](https://github.com/NautiPlan/NautiPlan) 的工具层重构，将任务管理、知识检索、信息搜索等能力封装为标准 MCP Server。
 
 ## 当前实现
 
-一期完成了最小 MCP 框架 + ReAct Agent 原型。
+一期完成了最小 MCP 框架，包含 Plan + Task 数据模型与基础 CRUD 工具。
 
 ### 项目结构
 
 ```
 NautiKit/
-├── cmd/nautikit/main.go          # MCP Server 入口，stdio 模式
+├── cmd/nautikit/main.go              # MCP Server 入口，stdio 模式
 ├── pkg/
 │   ├── inventory/
-│   │   ├── server_tool.go        # ServerTool 类型（Tool + Handler）
-│   │   └── registry.go           # Inventory（Add / All / RegisterAll）
+│   │   ├── server_tool.go            # ServerTool 类型（Tool + HandlerFunc）
+│   │   └── registry.go               # Inventory（Add / RegisterAll）
 │   └── taskcore/
-│       ├── models.go             # Task 结构体
-│       ├── store.go              # 内存存储（sync.RWMutex）
-│       └── tools.go              # echo, task_create, task_list
-├── demo/
-│   ├── agent/main.go             # ReAct Agent（LLM 决策 + MCP 工具调用）
-│   └── TEST_GUIDE.md             # 测试指南
-├── build/nautikit                # Server 二进制
+│       ├── models.go                 # Task、Plan 结构体
+│       ├── store.go                  # 内存存储 + JSON 文件持久化
+│       └── tools/
+│           ├── echo.go               # echo 回显工具
+│           ├── task.go               # task_create, task_list
+│           └── plan.go               # plan_create, plan_list
+├── build/                            # 构建输出
 ├── Makefile
 ├── go.mod / go.sum
-└── .gitignore
+└── README.md
 ```
 
-### MCP Server
+### 数据模型
 
-实现了 3 个工具，通过 stdio 传输，兼容任意 MCP Agent：
+```
+Plan ──1:N──> Task（Task 通过 plan_id 归属 Plan，date 字段表示安排在哪天）
+```
 
-| 工具 | 输入 | 描述 |
-|------|------|------|
-| `echo` | `message` (必填) | Echo 回显，验证链路 |
-| `task_create` | `title` (必填), `priority` (选填) | 创建任务，内存存储 |
-| `task_list` | 无 | 列出所有任务 |
+```go
+type Plan struct {
+    ID          string `json:"id"`
+    Title       string `json:"title"`
+    Description string `json:"description"`
+    CreatedAt   string `json:"created_at"`
+}
 
-### Demo Agent
+type Task struct {
+    ID          string `json:"id"`
+    PlanID      string `json:"plan_id"`
+    Title       string `json:"title"`
+    Description string `json:"description"`
+    Date        string `json:"date"`     // "2026-05-29"
+    Priority    string `json:"priority"` // "high" | "medium" | "low"
+    Done        bool   `json:"done"`
+}
+```
 
-基于 Anthropic API 的 ReAct Agent，通过 `CommandTransport` 启动 MCP Server 子进程，自动发现工具并让 LLM 决策调用。
+### MCP 工具
+
+通过 stdio 传输，兼容任意 MCP Agent：
+
+| 工具          | 参数                                                         | 描述                    |
+| ------------- | ------------------------------------------------------------ | ----------------------- |
+| `echo`        | `message` (必填)                                             | 回显测试，验证 MCP 链路 |
+| `task_create` | `title` (必填), `plan_id`, `description`, `date`, `priority` | 创建任务                |
+| `task_list`   | `plan_id` (选填)                                             | 列出任务，可按计划过滤  |
+| `plan_create` | `title` (必填), `description`                                | 创建计划                |
+| `plan_list`   | 无                                                           | 列出所有计划            |
+
+### 存储
+
+- 内存存储，通过 `sync.RWMutex` 保证并发安全
+- JSON 文件持久化：`~/.nautikit/data.json`，每次写操作后同步落盘
+- 后续可迁移至 SQLite
+
+### 构建与运行
 
 ```bash
-# 配置 API Key（三选一）
-export ANTHROPIC_API_KEY=sk-ant-...            # 环境变量
-echo 'ANTHROPIC_API_KEY=sk-ant-...' > ~/.nautikit/config   # 用户配置
-echo 'ANTHROPIC_API_KEY=sk-ant-...' > nautikit-config       # 项目配置
-
-# 可选配置
-export NAUTIKIT_MODEL=opus    # 模型: sonnet (默认), opus, haiku, 或完整 ID
-export ANTHROPIC_BASE_URL=https://api.anthropic.com   # 自定义端点
-
-# 构建并运行
+# 构建
 go build -o build/nautikit ./cmd/nautikit/
-go build -o demo/agent/demo-agent ./demo/agent/
-./demo/agent/demo-agent
+
+# 运行 MCP Server（stdio 模式）
+./build/nautikit
+
+# 手动测试
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./build/nautikit
 ```
 
-交互示例：
+## 规划模块
 
-```
-> 创建三个任务：买牛奶(高)、写周报(中)、看书(低)
+### MCP 1 · 任务核心
 
-🔧 task_create(title=买牛奶, priority=high)
-   → {"id":"task-1","title":"买牛奶","priority":"high","done":false}
-🔧 task_create(title=写周报, priority=medium)
-   → {"id":"task-2","title":"写周报","priority":"medium","done":false}
-🔧 task_create(title=看书, priority=low)
-   → {"id":"task-3","title":"看书","priority":"low","done":false}
+- [x] 任务创建与查询
+- [ ] 任务更新、删除
+- [ ] 自然语言 → 结构化任务生成
+- [ ] 动态优先级计算
+- [ ] 计划生成（含知识库召回）
 
-已为你创建了三个任务：买牛奶、写周报、看书
-```
+### MCP 2 · 知识库（RAG）
 
-### 架构
+- [ ] 文档入库、分块、向量化
+- [ ] 混合检索（向量 + 全文）
+- [ ] 上下文召回
 
-```
-User 输入 → LLM (Claude) 决策 → 调用 MCP 工具 → nautikit 子进程 → 返回结果 → LLM 继续推理
-```
+### MCP 3 · 信息检索
 
-详细测试用例见 [demo/TEST_GUIDE.md](demo/TEST_GUIDE.md)。
+- [ ] 通用 Web 搜索
+- [ ] arXiv 论文检索
+- [ ] GitHub 仓库搜索
+
+### MCP 4 · GitHub 存储
+
+- [ ] Git 版本化存储
+- [ ] 文件类型过滤

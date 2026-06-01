@@ -10,10 +10,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/NautiKit/NautiKit/pkg/inventory"
+	"github.com/NautiKit/NautiKit/pkg/taskcore"
 	"github.com/NautiKit/NautiKit/pkg/taskcore/tools"
 )
 
 func main() {
+
+	if err := taskcore.Init(""); err != nil {
+		log.Fatalf("初始化数据库失败: %v", err)
+	}
+	defer taskcore.Close()
+
 	inv := inventory.New()
 	inv.Add(tools.Echo())
 	inv.Add(tools.TaskCreate())

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -45,8 +46,17 @@ func TaskCreate() inventory.ServerTool {
 				args.Priority = "medium"
 			}
 
+			var planID uint
+			if args.PlanID != "" {
+				id, err := strconv.ParseUint(args.PlanID, 10, 64)
+				if err != nil {
+					return nil, err
+				}
+				planID = uint(id)
+			}
+
 			t := taskcore.AddTask(taskcore.Task{
-				PlanID:      args.PlanID,
+				PlanID:      planID,
 				Title:       args.Title,
 				Description: args.Description,
 				Date:        args.Date,
@@ -81,7 +91,16 @@ func TaskList() inventory.ServerTool {
 			}
 			json.Unmarshal(req.Params.Arguments, &args)
 
-			tasks := taskcore.ListTasks(args.PlanID)
+			var planID uint
+			if args.PlanID != "" {
+				id, err := strconv.ParseUint(args.PlanID, 10, 64)
+				if err != nil {
+					return nil, err
+				}
+				planID = uint(id)
+			}
+
+			tasks := taskcore.ListTasks(planID)
 			b, _ := json.MarshalIndent(tasks, "", "  ")
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},

@@ -2,66 +2,85 @@ package taskcore
 
 import (
 	"fmt"
-	"sync"
+	"os"
+	"path/filepath"
 	"time"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
-var (
-	store = make([]Task, 0)
-	mu    sync.RWMutex
-	idSeq int
+var db *gorm.DB
 
-	planStore = make([]Plan, 0)
-	planMu    sync.RWMutex
-	planIDSeq int
-)
+func Init(path string) error {
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("获取用户目录失败: %w", err)
+		}
+		path = filepath.Join(home, ".nautikit", "data.db")
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("创建数据目录失败: %w", err)
+	}
+
+	var err error
+	db, err = gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		return fmt.Errorf("打开数据库失败: %w", err)
+	}
+
+	if err := db.AutoMigrate(&Task{}, &Plan{}); err != nil {
+		return fmt.Errorf("自动建表失败: %w", err)
+	}
+
+	return nil
+}
+
+func Close() error {
+	if db == nil {
+		return nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("获取底层数据库连接失败: %w", err)
+	}
+	return sqlDB.Close()
+}
 
 func AddTask(t Task) Task {
-	mu.Lock()
-	defer mu.Unlock()
-	idSeq++
-	t.ID = fmt.Sprintf("task-%d", idSeq)
-	store = append(store, t)
+	db.Create(&t)
 	return t
 }
 
-func ListTasks(planID string) []Task {
-	mu.RLock()
-	defer mu.RUnlock()
-	out := make([]Task, 0)
-	for _, t := range store {
-		if planID == "" || t.PlanID == planID {
-			out = append(out, t)
-		}
+func ListTasks(planID uint) []Task {
+	var out []Task
+	q := db.Model(&Task{})
+	if planID != 0 {
+		q = q.Where("plan_id = ?", planID)
 	}
+	q.Order("date ASC, priority DESC").Find(&out)
 	return out
 }
 
 func AddPlan(p Plan) Plan {
-	planMu.Lock()
-	defer planMu.Unlock()
-	planIDSeq++
-	p.ID = fmt.Sprintf("plan-%d", planIDSeq)
 	p.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	planStore = append(planStore, p)
+	db.Create(&p)
 	return p
 }
 
-func GetPlan(id string) (Plan, bool) {
-	planMu.RLock()
-	defer planMu.RUnlock()
-	for _, p := range planStore {
-		if p.ID == id {
-			return p, true
-		}
+func GetPlan(id uint) (Plan, error) {
+	var p Plan
+	if err := db.First(&p, id).Error; err != nil {
+		return Plan{}, err
 	}
-	return Plan{}, false
+	return p, nil
 }
 
 func ListPlans() []Plan {
-	planMu.RLock()
-	defer planMu.RUnlock()
-	out := make([]Plan, len(planStore))
-	copy(out, planStore)
+	var out []Plan
+	db.Order("created_at DESC").Find(&out)
 	return out
 }
