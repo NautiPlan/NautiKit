@@ -39,6 +39,10 @@ func Init(path string) error {
 	return nil
 }
 
+func DB() *gorm.DB {
+	return db
+}
+
 func Close() error {
 	if db == nil {
 		return nil

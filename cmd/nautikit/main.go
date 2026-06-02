@@ -23,7 +23,7 @@ func main() {
 	}
 	defer taskcore.Close()
 
-	if err := kbcore.Init(""); err != nil {
+	if err := kbcore.Init(taskcore.DB()); err != nil {
 		log.Fatalf("初始化知识库失败: %v", err)
 	}
 	defer kbcore.Close()

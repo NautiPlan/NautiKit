@@ -1,129 +1,175 @@
 package kbcore
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
+	"sort"
+	"strconv"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/cloudwego/eino/components/document"
+	"github.com/cloudwego/eino/components/embedding"
 	"gorm.io/gorm"
 )
 
 var (
 	db       *gorm.DB
-	embedder Embedder
+	emb      embedding.Embedder
+	splitter document.Transformer
 )
 
-func Init(path string) error {
-	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("get home dir: %w", err)
-		}
-		path = filepath.Join(home, ".nautikit", "data.db")
-	}
+func Init(database *gorm.DB) error {
+	db = database
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create data dir: %w", err)
-	}
-
-	var err error
-	db, err = gorm.Open(sqlite.Open(path), &gorm.Config{})
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-
-	if err := db.AutoMigrate(&Document{}); err != nil {
+	if err := db.AutoMigrate(&Document{}, &Chunk{}); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
-	embedder = NewEmbedder()
+	var err error
+	emb, err = newEmbedder()
+	if err != nil {
+		return fmt.Errorf("init embedder: %w", err)
+	}
+
+	splitter, err = newSplitter()
+	if err != nil {
+		return fmt.Errorf("init splitter: %w", err)
+	}
+
 	return nil
 }
 
+// Close is a no-op when sharing the database with taskcore.
+// The database is closed by taskcore.Close().
 func Close() error {
-	if db == nil {
-		return nil
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		return fmt.Errorf("get underlying db: %w", err)
-	}
-	return sqlDB.Close()
+	return nil
 }
 
-// Ingest embeds content and stores a new document.
+func chunkCfg() (size, overlap int) {
+	size = 512
+	overlap = 64
+	if v := os.Getenv("NAUTIKIT_CHUNK_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			size = n
+		}
+	}
+	if v := os.Getenv("NAUTIKIT_CHUNK_OVERLAP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			overlap = n
+		}
+	}
+	return
+}
+
 func Ingest(content string, metadata map[string]any) (Document, error) {
-	vec, err := embedder.Embed(content)
-	if err != nil {
-		return Document{}, fmt.Errorf("embed: %w", err)
-	}
-
-	summary := content
-	if len([]rune(summary)) > 200 {
-		summary = string([]rune(summary)[:200])
-	}
-
 	doc := Document{
 		Content:   content,
-		Summary:   summary,
-		Embedding: vec,
 		Metadata:  metadata,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	db.Create(&doc)
+
+	pieces, err := splitDocs(content, splitter)
+	if err != nil {
+		return doc, fmt.Errorf("split: %w", err)
+	}
+
+	vecs, err := emb.EmbedStrings(context.Background(), pieces)
+	if err != nil {
+		return doc, fmt.Errorf("embed: %w", err)
+	}
+
+	for i, piece := range pieces {
+		db.Create(&Chunk{
+			DocumentID: doc.ID,
+			Index:      i,
+			Content:    piece,
+			Embedding:  vecs[i],
+		})
+	}
+
 	return doc, nil
 }
 
-// Search embeds the query and returns top-k documents by cosine similarity.
 func Search(query string, k int, threshold float64, filter map[string]any) ([]Document, error) {
-	qvec, err := embedder.Embed(query)
+	vecs, err := emb.EmbedStrings(context.Background(), []string{query})
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
+	qvec := vecs[0]
 
-	var docs []Document
-	db.Find(&docs)
+	docScores := make(map[uint]float64)
+	var chunks []Chunk
+	db.Find(&chunks)
+	for _, c := range chunks {
+		score := cosine(qvec, c.Embedding)
+		if score < threshold {
+			continue
+		}
+		if score > docScores[c.DocumentID] {
+			docScores[c.DocumentID] = score
+		}
+	}
 
-	type scored struct {
+	type docScore struct {
 		doc   Document
 		score float64
 	}
-	var candidates []scored
-
-	for _, d := range docs {
-		// metadata filter
+	var list []docScore
+	for docID, score := range docScores {
+		var d Document
+		if db.First(&d, docID).Error != nil {
+			continue
+		}
 		if !matchFilter(d.Metadata, filter) {
 			continue
 		}
-		score := cosine(qvec, d.Embedding)
-		if score >= threshold {
-			candidates = append(candidates, scored{doc: d, score: score})
-		}
+		list = append(list, docScore{doc: d, score: score})
 	}
 
-	// sort descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].score > candidates[i].score {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].score > list[j].score
+	})
 
-	if k > len(candidates) {
-		k = len(candidates)
+	if k > len(list) {
+		k = len(list)
 	}
-
 	out := make([]Document, k)
 	for i := 0; i < k; i++ {
-		out[i] = candidates[i].doc
+		out[i] = list[i].doc
 	}
 	return out, nil
 }
+
+func ListDocuments(filter map[string]any) []Document {
+	var docs []Document
+	db.Find(&docs)
+	if filter == nil {
+		return docs
+	}
+	out := make([]Document, 0, len(docs))
+	for _, d := range docs {
+		if matchFilter(d.Metadata, filter) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func DeleteDocument(id uint) error {
+	db.Where("document_id = ?", id).Delete(&Chunk{})
+	return db.Delete(&Document{}, id).Error
+}
+
+func ClearDocuments() error {
+	db.Where("1 = 1").Delete(&Chunk{})
+	db.Where("1 = 1").Delete(&Document{})
+	return nil
+}
+
+// --- helpers ---
 
 func matchFilter(meta map[string]any, filter map[string]any) bool {
 	if filter == nil {
@@ -155,27 +201,4 @@ func cosine(a, b []float64) float64 {
 		return 0
 	}
 	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
-}
-
-func ListDocuments(filter map[string]any) []Document {
-	var docs []Document
-	db.Find(&docs)
-	if filter == nil {
-		return docs
-	}
-	out := make([]Document, 0, len(docs))
-	for _, d := range docs {
-		if matchFilter(d.Metadata, filter) {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
-func DeleteDocument(id uint) error {
-	return db.Delete(&Document{}, id).Error
-}
-
-func ClearDocuments() error {
-	return db.Where("1 = 1").Delete(&Document{}).Error
 }
